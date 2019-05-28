@@ -10,6 +10,13 @@ from . import loss as gan_losses
 from . import vis
 
 
+"""
+Keras implementation of Radford et al. (2015) - Unsupervised representation learning with deep convolutional 
+generative adversarial networks (https://arxiv.org/pdf/1511.06434.pdf)
+
+"""
+
+
 class GAN:
     default_optimizer = Adam(lr=0.0002, beta_1=0.5)
 
@@ -24,8 +31,7 @@ class GAN:
         self.set_noise(noise, noise_params)
         if loss.lower() == 'wasserstein' or loss is gan_losses.wasserstein_loss:
             self.loss = gan_losses.wasserstein_loss
-            if discriminator.layers[-1].activation != keras.activations.linear and discriminator.layers[
-                -1].activation is not None:
+            if discriminator.layers[-1].activation != keras.activations.linear and discriminator.layers[-1].activation is not None:
                 raise ValueError("Wasserstein loss requires the final activation to be linear.")
         else:
             self.loss = loss
@@ -43,8 +49,7 @@ class GAN:
         return self.generator.predict(noise)
 
     def __combine_discriminator_generator(self):
-        self.discriminator.compile(loss=self.loss,
-                                   optimizer=self.discriminator_optimizer, metrics=['acc'])
+        self.discriminator.compile(loss=self.loss, optimizer=self.discriminator_optimizer, metrics=['acc'])
         gan_noise_input = Input(shape=self.noise_input_shape, name='gan_noise_input')
         generator_out = self.generator(inputs=[gan_noise_input])
         self.discriminator.trainable = False
@@ -59,13 +64,16 @@ class GAN:
             return np.random.normal(self.noise_params['mu'], self.noise_params['sigma'], shape)
         return np.random.uniform(self.noise_params['min'], self.noise_params['max'], shape)
 
-    def train_random_batches(self, X, Y=None, batches=1000, batch_size=32, nr_train_discriminator=1,
+    def train_random_batches(self, X, y=None, batches=1000, batch_size=32, nr_train_discriminator=1,
                              nr_train_generator=1,
                              log_interval=1, plot_interval=50, image_shape=None):
         if batch_size >= X.shape[0]:
             batch_size = X.shape[0]
 
         with trange(batches) as prog_bar:
+
+            outputs = {'D_accs': [], 'D_losses': [], 'G_accs': [], 'G_losses': []}
+
             for i in prog_bar:
                 # train discriminator nr_train_discriminator times
                 d_accuracy, d_loss = do_n_times(nr_train_discriminator, self.train_discriminator_random_batch,
@@ -73,6 +81,9 @@ class GAN:
                 # train generator nr_train_generator times
                 g_accuracy, g_loss = do_n_times(nr_train_generator, self.train_generator,
                                                 np.mean, batch_size=batch_size)
+
+                outputs['D_accs'].append(d_accuracy); outputs['D_losses'].append(d_loss)
+                outputs['G_accs'].append(g_accuracy); outputs['G_losses'].append(g_loss)
 
                 if log_interval != 0 and (i % log_interval == 0):
                     prog_bar.set_description("Batch " + str(i + 1) + ",  " + " D loss: " + str(round(d_loss, 4)) +
@@ -82,18 +93,23 @@ class GAN:
                 if plot_interval != 0 and (i % plot_interval == 0):
                     vis.show_gan_image_predictions(self, 32, image_shape=image_shape)
 
-    def train(self, X, Y=None, epochs=10, batch_size=32, log_interval=1, plot_interval=50, image_shape=None):
+            return outputs
+
+    def train(self, X, y=None, epochs=10, batch_size=32, log_interval=1, plot_interval=50, image_shape=None, shuffle=True):
         if batch_size >= X.shape[0]:
             batch_size = X.shape[0]
 
         batches_done = 0
         batch_count = X.shape[0] // batch_size
         with trange(epochs) as prog_bar:
+
+            outputs = {'D_accs': [], 'D_losses': [], 'G_accs': [], 'G_losses': []}
+
             for i in prog_bar:
-                D_accs = []
-                D_losses = []
-                G_accs = []
-                G_losses = []
+
+                if shuffle:
+                    np.random.shuffle(X)
+
                 for j in range(batch_count):
                     # Input for the generator
                     noise_input_batch = self.__generate_noise((batch_size,) + self.noise_input_shape)
@@ -104,13 +120,11 @@ class GAN:
                     x_batch = X[batch_indexes]
 
                     d_accuracy, d_loss = self.train_discriminator(generator_predictions, x_batch)
-
                     g_accuracy, g_loss = self.train_generator(batch_size)
 
-                    D_accs.append(d_accuracy)
-                    D_losses.append(d_loss)
-                    G_accs.append(g_accuracy)
-                    G_losses.append(g_loss)
+                    outputs['D_accs'].append(d_accuracy); outputs['D_losses'].append(d_loss)
+                    outputs['G_accs'].append(g_accuracy); outputs['G_losses'].append(g_loss)
+
                     batches_done = batches_done + 1
                     if log_interval != 0 and (batches_done % log_interval == 0):
                         prog_bar.set_description("Epoch " + str(i + 1) + ",  " + " D loss: " + str(round(d_loss, 4)) +
@@ -119,6 +133,8 @@ class GAN:
                                                  " G acc: " + str(round(g_accuracy, 4)))
                     if plot_interval != 0 and (batches_done % plot_interval == 0):
                         vis.show_gan_image_predictions(self, 32, image_shape=image_shape)
+
+            return outputs
 
     def train_generator(self, batch_size):
         # Train the generator, 2* batch size to get the same nr as the discriminator
