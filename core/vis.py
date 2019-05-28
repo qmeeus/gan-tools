@@ -29,4 +29,4 @@ def show_gan_image_predictions(gan, nr, columns=8, image_shape=None, filename=No
     ax.set_xticks([]); ax.set_yticks([])
     ax.imshow(np.squeeze(grid))
     plt.tight_layout()
-    # plt.savefig(filename or 'image_{}.eps'.format(np.random.randint(10**6, 10**7-1)))
+    plt.savefig(filename or 'image_{}.eps'.format(np.random.randint(10**6, 10**7-1))) or plt.close() if filename else plt.show()
