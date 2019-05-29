@@ -6,6 +6,7 @@ from tqdm.auto import trange
 from tqdm import trange
 
 from util.func import do_n_times
+from util.ops import soft_accuracy
 from . import loss as gan_losses
 from . import vis
 
@@ -33,8 +34,10 @@ class GAN:
             self.loss = gan_losses.wasserstein_loss
             if discriminator.layers[-1].activation != keras.activations.linear and discriminator.layers[-1].activation is not None:
                 raise ValueError("Wasserstein loss requires the final activation to be linear.")
+            self.metrics = [soft_accuracy]
         else:
             self.loss = loss
+            self.metrics = ['acc']
         self.__combine_discriminator_generator()
 
     def set_noise(self, noise, noise_params):
@@ -49,13 +52,13 @@ class GAN:
         return self.generator.predict(noise)
 
     def __combine_discriminator_generator(self):
-        self.discriminator.compile(loss=self.loss, optimizer=self.discriminator_optimizer, metrics=['acc'])
+        self.discriminator.compile(loss=self.loss, optimizer=self.discriminator_optimizer, metrics=self.metrics)
         gan_noise_input = Input(shape=self.noise_input_shape, name='gan_noise_input')
         generator_out = self.generator(inputs=[gan_noise_input])
         self.discriminator.trainable = False
         gan_output = self.discriminator(inputs=[generator_out])
         self.gan = Model(inputs=[gan_noise_input], outputs=[gan_output], name='GAN')
-        self.gan.compile(loss=self.loss, optimizer=self.generator_optimizer, metrics=['acc'])
+        self.gan.compile(loss=self.loss, optimizer=self.generator_optimizer, metrics=self.metrics)
 
     def __generate_noise(self, shape):
         if callable(self.noise):
